@@ -25,7 +25,7 @@ mode_std = 0.1
 # The number of samples per mode
 n_samples_per_mode = 1000
 # Epochs to train for (an epoch is 1 training run over the dataset)
-epochs = 400
+epochs = 200
 # Minibatch size
 batch_size = 64
 # Learning rate
@@ -125,6 +125,5 @@ def update(i):
     scatter.set_offsets(xs[i*10])
 
 ani = animation.FuncAnimation(fig, update, interval=33, frames=100)
-ani.save("diffusion.mp4")
-#plt.scatter(x0[:, 0].detach().numpy(), x0[:, 1].detach().numpy())
+ani.save("diffusion.gif", writer="imagemagick")
 plt.show()
