@@ -118,4 +118,4 @@ with torch.no_grad():
     x0 = x_t
     x0 = x0.view(-1, 1, 28, 28).clamp(0.0, 1.0)
     # === Print predictions and create animation ===
-    torchvision.utils.save_image(x0, "output_images.png")
+    torchvision.utils.save_image(x0, "mnist_trained.png")
