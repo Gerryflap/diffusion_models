@@ -12,13 +12,20 @@ def alpha_hat(t, T):
 
 
 def beta(t, T):
-    beta = 1.0 - alpha_hat(t, T)/alpha_hat(t-1, T)
+    beta = 1.0 - alpha_hat(t, T) / alpha_hat(t - 1, T)
     # Beta is clipped in the paper in order to avoid issues near T
     return beta.clamp(0, 0.999)
 
 
+def beta_hat(t, T):
+    a_hat_t = alpha_hat(t, T)
+    a_hat_tmin = alpha_hat(t - 1.0, T)
+    return beta(t, T) * (1.0 - a_hat_tmin) / (1.0 - a_hat_t)
+
+
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
+
     xs = torch.linspace(0, 1000, 1000)
     ys = alpha_hat(xs, 1000)
 
