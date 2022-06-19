@@ -18,19 +18,19 @@ import diffusion_models as dm
 # Hidden layer size
 from mnist_models import UNetMNIST
 
-h_size = 8
-# The number of samples per mode
-n_samples_per_mode = 1000
+h_size = 64
 # Epochs to train for (an epoch is 1 training run over the dataset)
 epochs = 200
 # Minibatch size
 batch_size = 64
 # Learning rate
-lr = 0.001
+lr = 0.0003
 # Number of timesteps T
 T = 1000
 # Number of evaluation samples
 n_eval_samples = 64
+#Use cuda
+cuda = True
 
 # === Define the prediction model ===
 # model = Sequential(
@@ -40,6 +40,9 @@ n_eval_samples = 64
 #     Linear(h_size, 28*28),
 # )
 model = UNetMNIST(h_size)
+
+if cuda:
+    model = model.cuda()
 
 
 opt = RMSprop(model.parameters(), lr)
@@ -64,6 +67,11 @@ try:
             t = torch.floor(torch.rand((batch_size, 1)) * (T - 1) + 1)
             eps = torch.normal(0, 1, (batch_size, 1, 28, 28))
             alpha_cumulative_t = dm.alpha_hat(t, T).view(-1, 1, 1, 1)
+            if cuda:
+                x = x.cuda()
+                t = t.cuda()
+                eps = eps.cuda()
+                alpha_cumulative_t = alpha_cumulative_t.cuda()
 
             x_after = torch.sqrt(alpha_cumulative_t) * x
             x_after += torch.sqrt(1.0 - alpha_cumulative_t) * eps
@@ -80,24 +88,34 @@ except KeyboardInterrupt:
     print("Training interrupted, showing results")
 
 # === Evaluation ===
-x_T = torch.normal(0, 1, (n_eval_samples, 1, 28, 28))
-ones = torch.ones((n_eval_samples, 1), dtype=torch.float32)
-x_t = x_T
-for t_val in range(T, 1, -1):
-    t = ones * t_val
-    alpha_cumulative_t = dm.alpha_hat(t, T).view(-1, 1, 1, 1)
-    alpha_cumulative_t[alpha_cumulative_t == 0.0] = 1e-6
-    beta = dm.beta(t, T).view(-1, 1, 1, 1)
+with torch.no_grad():
+    x_T = torch.normal(0, 1, (n_eval_samples, 1, 28, 28))
+    ones = torch.ones((n_eval_samples, 1), dtype=torch.float32)
+    if cuda:
+        x_T = x_T.cuda()
+        ones = ones.cuda()
 
-    # model_inp = torch.cat([x_t, t / float(T)], dim=1)
-    pred = model(x_t, t / float(T))
-    x_prev = (x_t - (beta / (torch.sqrt(1.0 - alpha_cumulative_t))) * pred) / (torch.sqrt(1.0 - beta))
-    x_prev += sigma(t).view(-1, 1, 1, 1) * torch.randn_like(x_t)
+    x_t = x_T
+    for t_val in range(T, 1, -1):
+        t = ones * t_val
+        alpha_cumulative_t = dm.alpha_hat(t, T).view(-1, 1, 1, 1)
+        alpha_cumulative_t[alpha_cumulative_t == 0.0] = 1e-6
+        beta = dm.beta(t, T).view(-1, 1, 1, 1)
+        sigm = sigma(t).view(-1, 1, 1, 1)
+        if cuda:
+            alpha_cumulative_t = alpha_cumulative_t.cuda()
+            beta = beta.cuda()
+            sigm = sigm.cuda()
 
-    # Set x t to x t-1 (and clamp the values to known ranges so everything stays in line
-    x_t = torch.clamp(x_prev, -5, 5)
+        # model_inp = torch.cat([x_t, t / float(T)], dim=1)
+        pred = model(x_t, t / float(T))
+        x_prev = (x_t - (beta / (torch.sqrt(1.0 - alpha_cumulative_t))) * pred) / (torch.sqrt(1.0 - beta))
+        x_prev += sigm * torch.randn_like(x_t)
 
-x0 = x_t
-x0 = x0.view(-1, 1, 28, 28)
-# === Print predictions and create animation ===
-torchvision.utils.save_image(x0, "output_images.png")
+        # Set x t to x t-1 (and clamp the values to known ranges so everything stays in line
+        x_t = torch.clamp(x_prev, -5, 5)
+
+    x0 = x_t
+    x0 = x0.view(-1, 1, 28, 28).clamp(0.0, 1.0)
+    # === Print predictions and create animation ===
+    torchvision.utils.save_image(x0, "output_images.png")

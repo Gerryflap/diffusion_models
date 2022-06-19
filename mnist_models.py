@@ -8,6 +8,7 @@ import torch.nn
 # 7
 # 14
 # 28
+from torch import relu
 from torch.nn import Conv2d, ConvTranspose2d
 
 
@@ -37,14 +38,26 @@ class UNetMNIST(torch.nn.Module):
         x = torch.cat([x, t_vec], dim=1)
 
         x14 = self.conv_down_1(x)
+        x14 = relu(x14)
+
         x7 = self.conv_down_2(x14)
+        x7 = relu(x7)
+
         x4 = self.conv_down_3(x7)
+        x4 = relu(x4)
 
         x = self.conv_middle_1(x4)
+        x = relu(x)
+
         x = self.conv_middle_2(x)
+        x = relu(x)
 
         x = self.conv_up_1(torch.cat([x, x4], dim=1))
+        x = relu(x)
+
         x = self.conv_up_2(torch.cat([x, x7], dim=1))
+        x = relu(x)
+
         x = self.conv_up_3(torch.cat([x, x14], dim=1))
         return x
 
