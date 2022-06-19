@@ -16,6 +16,7 @@ import diffusion_models as dm
 
 # === Hyper parameters for this experiment ===
 # Hidden layer size
+import util
 from mnist_models import UNetMNIST
 
 h_size = 64
@@ -31,6 +32,8 @@ T = 1000
 n_eval_samples = 64
 #Use cuda
 cuda = True
+# Model exponential moving avg rate
+ema_rate = 0.9997
 
 # === Define the prediction model ===
 # model = Sequential(
@@ -40,12 +43,16 @@ cuda = True
 #     Linear(h_size, 28*28),
 # )
 model = UNetMNIST(h_size)
+model_eval = UNetMNIST(h_size)
+
 
 if cuda:
     model = model.cuda()
-
+    model_eval = model_eval.cuda()
 
 opt = RMSprop(model.parameters(), lr)
+
+util.parameter_ema(model_eval, model, True)
 
 
 # === Model sigma at time t ===
@@ -76,7 +83,7 @@ def evaluate(epoch=None):
                 sigm = sigm.cuda()
 
             # model_inp = torch.cat([x_t, t / float(T)], dim=1)
-            pred = model(x_t, t / float(T))
+            pred = model_eval(x_t, t / float(T))
             x_prev = (x_t - (beta / (torch.sqrt(1.0 - alpha_cumulative_t))) * pred) / (torch.sqrt(1.0 - beta))
             x_prev += sigm * torch.randn_like(x_t)
 
@@ -120,6 +127,8 @@ try:
 
             loss.backward()
             opt.step()
+            util.parameter_ema(model_eval, model, rate=ema_rate)
+
         loss_v = loss.detach().item()
         print(f"Epoch {epoch}/{epochs}, loss={loss_v}")
         if epoch % 1 == 0:
