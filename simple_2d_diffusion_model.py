@@ -98,7 +98,7 @@ x_T = torch.normal(0, 1, (n_eval_samples, 2))
 ones = torch.ones((n_eval_samples, 1), dtype=torch.float32)
 xs = []
 x_t = x_T
-for t_val in range(T, 1, -1):
+for t_val in range(T, 0, -1):
     t = ones * t_val
     alpha_cumulative_t = dm.alpha_hat(t, T)
     alpha_cumulative_t[alpha_cumulative_t == 0.0] = 1e-6
@@ -106,7 +106,7 @@ for t_val in range(T, 1, -1):
 
     model_inp = torch.cat([x_t, t / float(T)], dim=1)
     pred = model(model_inp)
-    x_prev = (x_t - (beta / (torch.sqrt(1.0 - alpha_cumulative_t))) * pred) / (torch.sqrt(1.0 - beta))
+    x_prev = (x_t - (beta / (torch.sqrt(1.0 - alpha_cumulative_t))) * pred) * (torch.sqrt(1.0 - beta))
     x_prev += sigma(t) * torch.randn_like(x_t)
 
     # Set x t to x t-1 (and clamp the values to known ranges so everything stays in line
