@@ -3,7 +3,7 @@ import torch
 
 
 def f(t, T):
-    s = 1e-6
+    s = 0.008
     return torch.cos((math.pi / 2.0) * (t / T + s) / (1.0 + s)) ** 2.0
 
 
@@ -12,9 +12,9 @@ def alpha_hat(t, T):
 
 
 def beta(t, T):
-    beta = 1.0 - alpha_hat(t, T) / alpha_hat(t - 1, T)
+    beta = 1.0 - alpha_hat(t, T) / alpha_hat(t - 1.0, T)
     # Beta is clipped in the paper in order to avoid issues near T
-    return beta.clamp(0, 0.999)
+    return torch.clamp(beta, 0.0, 0.999)
 
 
 def beta_hat(t, T):
@@ -28,6 +28,8 @@ if __name__ == "__main__":
 
     xs = torch.linspace(0, 1000, 1000)
     ys = alpha_hat(xs, 1000)
+    bs = beta(xs, 1000)
 
     plt.plot(xs.numpy(), ys.numpy())
+    plt.plot(xs.numpy(), bs.numpy())
     plt.show()

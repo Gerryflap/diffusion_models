@@ -71,7 +71,7 @@ def evaluate(epoch=None):
             ones = ones.cuda()
 
         x_t = x_T
-        for t_val in range(T, 1, -1):
+        for t_val in range(T, 0, -1):
             t = ones * t_val
             alpha_cumulative_t = dm.alpha_hat(t, T).view(-1, 1, 1, 1)
             alpha_cumulative_t[alpha_cumulative_t == 0.0] = 1e-6
@@ -84,11 +84,11 @@ def evaluate(epoch=None):
 
             # model_inp = torch.cat([x_t, t / float(T)], dim=1)
             pred = model_eval(x_t, t / float(T))
-            x_prev = (x_t - (beta / (torch.sqrt(1.0 - alpha_cumulative_t))) * pred) / (torch.sqrt(1.0 - beta))
+            x_prev = (x_t - (beta / (torch.sqrt(1.0 - alpha_cumulative_t))) * pred) * (torch.sqrt(1.0 - beta))
             x_prev += sigm * torch.randn_like(x_t)
 
-            # Set x t to x t-1 (and clamp the values to known ranges so everything stays in line
-            x_t = torch.clamp(x_prev, -5, 5)
+            # Set x t to x t-1
+            x_t = x_prev
 
         x0 = x_t
         x0 = x0.view(-1, 1, 28, 28).clamp(0.0, 1.0)

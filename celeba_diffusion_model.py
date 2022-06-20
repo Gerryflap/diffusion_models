@@ -7,6 +7,7 @@
 
 import torch
 import torchvision.utils
+from torch.optim import Adam
 from torch.optim.rmsprop import RMSprop
 from torch.utils.data import DataLoader
 from torchvision.datasets import CelebA
@@ -23,13 +24,13 @@ from timer import Timer
 from util import parameter_ema
 
 path = "data"
-h_size = 128
+h_size = 64
 # Epochs to train for (an epoch is 1 training run over the dataset)
 epochs = 200
 # Minibatch size
 batch_size = 64
 # Learning rate
-lr = 0.0001
+lr = 0.001
 # Number of timesteps T
 T = 1000
 # Number of evaluation samples
@@ -37,7 +38,7 @@ n_eval_samples = 64
 # Use cuda
 cuda = True
 # use 32x32 instead of 64x64
-use32 = False
+use32 = True
 # Exponential moving averaging rate over model weights (default 0.9999 in paper)
 ema_rate = 0.9999
 
@@ -79,24 +80,26 @@ dataloader = DataLoader(dataset, batch_size, shuffle=True, drop_last=True, num_w
 
 x = dataloader.__iter__().__next__()[0]
 torchvision.utils.save_image((x + 1.0) / 2.0, "results/original.png")
-print(x.size())
+print(x.size(), x.min(), x.max())
 
+# Define global x_T for evaluation
+x_T_eval = torch.normal(0.0, 1.0, (n_eval_samples, 3, res, res))
+if cuda:
+    x_T_eval = x_T_eval.cuda()
 
 # === Eval function definition ===
 def evaluate(epoch=None):
     model_eval.eval()
+    xlist = [(x_T_eval[0] + 1.0)/2.0]
     with torch.no_grad():
-        x_T = torch.normal(0, 1, (n_eval_samples, 3, res, res))
         ones = torch.ones((n_eval_samples, 1), dtype=torch.float32)
         if cuda:
-            x_T = x_T.cuda()
             ones = ones.cuda()
 
-        x_t = x_T
-        for t_val in range(T, 1, -1):
+        x_t = x_T_eval
+        for t_val in range(T, 0, -1):
             t = ones * t_val
             alpha_cumulative_t = dm.alpha_hat(t, T).view(-1, 1, 1, 1)
-            alpha_cumulative_t[alpha_cumulative_t == 0.0] = 1e-6
             beta = dm.beta(t, T).view(-1, 1, 1, 1)
             sigm = sigma(t).view(-1, 1, 1, 1)
             if cuda:
@@ -105,12 +108,16 @@ def evaluate(epoch=None):
                 sigm = sigm.cuda()
 
             # model_inp = torch.cat([x_t, t / float(T)], dim=1)
-            pred = model_eval(x_t, t / float(T))
-            x_prev = (x_t - (beta / (torch.sqrt(1.0 - alpha_cumulative_t))) * pred) / (torch.sqrt(1.0 - beta))
-            x_prev += sigm * torch.randn_like(x_t)
+            pred = model_eval(x_t, t / T)
+            # The paper says to do / sqrt(alpha), using a std normal instead of pred reveals that that value explodes
+            # Using multiplication seems to solve this issue, stddev remains around 1.0
+            x_prev = (x_t - (beta / (torch.sqrt(1.0 - alpha_cumulative_t))) * pred) * (torch.sqrt(1.0 - beta))
+            x_prev = x_prev + sigm * torch.normal(0.0, 1.0, x_t.size(), device=x_t.device)
 
             # Set x t to x t-1 (and clamp the values to known ranges so everything stays in line
-            x_t = torch.clamp(x_prev, -1000, 1000)
+            x_t = x_prev
+            if t_val%(T//10) == 1:
+                xlist.append((x_t[0, :] + 1.0)/2.0)
 
         x0 = x_t
         x0 = x0.view(-1, 3, res, res)
@@ -119,10 +126,12 @@ def evaluate(epoch=None):
         if epoch is None:
             torchvision.utils.save_image(x0.clamp(0, 1), "results/celeba_trained_final.png")
             torchvision.utils.save_image(x0, "results/norm_celeba_trained_final.png", normalize=True)
+            torchvision.utils.save_image(torch.stack(xlist, dim=0), "results/diff_celeba_trained_final.png", nrow=100)
 
         else:
             torchvision.utils.save_image(x0.clamp(0, 1), "results/celeba_trained_epoch_%05d.png" % epoch)
             torchvision.utils.save_image(x0, "results/norm_celeba_trained_epoch_%05d.png" % epoch, normalize=True)
+            torchvision.utils.save_image(torch.stack(xlist, dim=0), "results/diff_celeba_trained_%05d.png" % epoch, nrow=100)
         model_eval.train()
 
 
@@ -135,7 +144,7 @@ try:
             timer.log_and_set("loading")
             opt.zero_grad()
             t = torch.floor(torch.rand((batch_size, 1)) * (T - 1) + 1)
-            eps = torch.normal(0, 1, (batch_size, 3, res, res))
+            eps = torch.normal(0.0, 1.0, (batch_size, 3, res, res))
             alpha_cumulative_t = dm.alpha_hat(t, T).view(-1, 1, 1, 1)
             timer.log_and_set("initializing")
             if cuda:
