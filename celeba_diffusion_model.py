@@ -7,10 +7,10 @@
 
 import torch
 import torchvision.utils
-from torch.optim import Adam
+from torch.optim import Adam, AdamW
 from torch.optim.rmsprop import RMSprop
 from torch.utils.data import DataLoader
-from torchvision.datasets import CelebA
+from torchvision.datasets import CelebA, MNIST
 from torchvision.transforms import ToTensor, Compose, CenterCrop, Resize, Lambda
 
 import diffusion_models as dm
@@ -24,13 +24,13 @@ from timer import Timer
 from util import parameter_ema
 
 path = "data"
-h_size = 64
+h_size = 4
 # Epochs to train for (an epoch is 1 training run over the dataset)
 epochs = 200
 # Minibatch size
 batch_size = 64
 # Learning rate
-lr = 0.001
+lr = 0.0001
 # Number of timesteps T
 T = 1000
 # Number of evaluation samples
@@ -38,7 +38,7 @@ n_eval_samples = 64
 # Use cuda
 cuda = True
 # use 32x32 instead of 64x64
-use32 = True
+use32 = False
 # Exponential moving averaging rate over model weights (default 0.9999 in paper)
 ema_rate = 0.9999
 
@@ -56,7 +56,7 @@ if cuda:
 
 parameter_ema(model_eval, model, True)
 
-opt = RMSprop(model.parameters(), lr)
+opt = AdamW(model.parameters(), lr, weight_decay=0.01)
 res = 32 if use32 else 64
 
 
@@ -76,11 +76,19 @@ dataset = CelebA(path,
                      Lambda(lambda tensor: tensor * 2.0 - 1.0)
                  ]),
                  download=True)
+# dataset = MNIST(path,
+#                  transform=Compose([
+#                      Resize(res),
+#                      ToTensor(),
+#                      Lambda(lambda tensor: torch.cat([tensor]*3, dim=0)),
+#                      Lambda(lambda tensor: tensor * 2.0 - 1.0)
+#                  ]),
+#                  download=True)
 dataloader = DataLoader(dataset, batch_size, shuffle=True, drop_last=True, num_workers=4)
 
 x = dataloader.__iter__().__next__()[0]
-torchvision.utils.save_image((x + 1.0) / 2.0, "results/original.png")
 print(x.size(), x.min(), x.max())
+torchvision.utils.save_image((x + 1.0) / 2.0, "results/original.png")
 
 # Define global x_T for evaluation
 x_T_eval = torch.normal(0.0, 1.0, (n_eval_samples, 3, res, res))
@@ -109,9 +117,7 @@ def evaluate(epoch=None):
 
             # model_inp = torch.cat([x_t, t / float(T)], dim=1)
             pred = model_eval(x_t, t / T)
-            # The paper says to do / sqrt(alpha), using a std normal instead of pred reveals that that value explodes
-            # Using multiplication seems to solve this issue, stddev remains around 1.0
-            x_prev = (x_t - (beta / (torch.sqrt(1.0 - alpha_cumulative_t))) * pred) * (torch.sqrt(1.0 - beta))
+            x_prev = (x_t - (beta / torch.sqrt(1.0 - alpha_cumulative_t)) * pred) / (torch.sqrt(1.0 - beta))
             x_prev = x_prev + sigm * torch.normal(0.0, 1.0, x_t.size(), device=x_t.device)
 
             # Set x t to x t-1 (and clamp the values to known ranges so everything stays in line
@@ -173,10 +179,16 @@ try:
         print(f"Epoch {epoch}/{epochs}, loss={loss_v}")
         if epoch % 1 == 0:
             evaluate(epoch)
+            torch.save(model_eval, "model_eval.pt")
+            torch.save(model, "model.pt")
+            torch.save(opt, "opt.pt")
             print("Updated output image")
 
 except KeyboardInterrupt:
     print("Training interrupted, showing results")
+    torch.save(model_eval, "model_eval.pt")
+    torch.save(model, "model.pt")
+    torch.save(opt, "opt.pt")
 
 # === Evaluation ===
 evaluate()

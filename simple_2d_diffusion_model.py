@@ -106,7 +106,7 @@ for t_val in range(T, 0, -1):
 
     model_inp = torch.cat([x_t, t / float(T)], dim=1)
     pred = model(model_inp)
-    x_prev = (x_t - (beta / (torch.sqrt(1.0 - alpha_cumulative_t))) * pred) * (torch.sqrt(1.0 - beta))
+    x_prev = (x_t - (beta / torch.sqrt(1.0 - alpha_cumulative_t)) * pred) / (torch.sqrt(1.0 - beta))
     x_prev += sigma(t) * torch.randn_like(x_t)
 
     # Set x t to x t-1 (and clamp the values to known ranges so everything stays in line

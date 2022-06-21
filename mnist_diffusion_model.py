@@ -33,7 +33,7 @@ n_eval_samples = 64
 #Use cuda
 cuda = True
 # Model exponential moving avg rate
-ema_rate = 0.9997
+ema_rate = 0.9999
 
 # === Define the prediction model ===
 # model = Sequential(
@@ -62,19 +62,23 @@ def sigma(t):
     return torch.sqrt(sigm)
 
 # === Evaluation function ===
+x_T_eval = torch.normal(0, 1, (n_eval_samples, 1, 28, 28))
+if cuda:
+    x_T_eval = x_T_eval.cuda()
+
 def evaluate(epoch=None):
     with torch.no_grad():
-        x_T = torch.normal(0, 1, (n_eval_samples, 1, 28, 28))
         ones = torch.ones((n_eval_samples, 1), dtype=torch.float32)
         if cuda:
-            x_T = x_T.cuda()
             ones = ones.cuda()
 
-        x_t = x_T
+        x_t = x_T_eval
+        xlist = [x_T_eval[0, :]]
+
         for t_val in range(T, 0, -1):
             t = ones * t_val
             alpha_cumulative_t = dm.alpha_hat(t, T).view(-1, 1, 1, 1)
-            alpha_cumulative_t[alpha_cumulative_t == 0.0] = 1e-6
+            # alpha_cumulative_t[alpha_cumulative_t == 0.0] = 1e-6
             beta = dm.beta(t, T).view(-1, 1, 1, 1)
             sigm = sigma(t).view(-1, 1, 1, 1)
             if cuda:
@@ -84,22 +88,28 @@ def evaluate(epoch=None):
 
             # model_inp = torch.cat([x_t, t / float(T)], dim=1)
             pred = model_eval(x_t, t / float(T))
-            x_prev = (x_t - (beta / (torch.sqrt(1.0 - alpha_cumulative_t))) * pred) * (torch.sqrt(1.0 - beta))
+            x_prev = (x_t - (beta / torch.sqrt(1.0 - alpha_cumulative_t)) * pred) / (torch.sqrt(1.0 - beta))
             x_prev += sigm * torch.randn_like(x_t)
 
             # Set x t to x t-1
             x_t = x_prev
 
+            if t_val % (T//10) == 1:
+                xlist.append(x_t[0, :])
+
         x0 = x_t
-        x0 = x0.view(-1, 1, 28, 28).clamp(0.0, 1.0)
+        x0 = x0.view(-1, 1, 28, 28)
         # === Print predictions and create animation ===
         if epoch is None:
             torchvision.utils.save_image(x0.clamp(0, 1), "results/mnist_trained_final.png")
             torchvision.utils.save_image(x0, "results/norm_mnist_trained_final.png", normalize=True)
+            torchvision.utils.save_image(torch.stack(xlist, dim=0), "results/diff_mnist_trained_final.png", nrow=100)
+
 
         else:
             torchvision.utils.save_image(x0.clamp(0, 1), "results/mnist_trained_epoch_%05d.png" % epoch)
             torchvision.utils.save_image(x0, "results/norm_mnist_trained_epoch_%05d.png" % epoch, normalize=True)
+            torchvision.utils.save_image(torch.stack(xlist, dim=0), "results/diff_mnist_trained_%05d.png" % epoch, nrow=100)
 
 # === Training ===
 dataset = MNIST("data/", train=True, transform=ToTensor(), download=True)
