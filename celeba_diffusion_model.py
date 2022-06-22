@@ -17,20 +17,22 @@ import diffusion_models as dm
 
 # === Hyper parameters for this experiment ===
 # Hidden layer size
-from celeba_models import UNetCelebA, UNetCelebA32
+from celeba_models import UNetCelebA, UNetCelebA32, UResNetCelebA32, UResNetCelebA
 
 # CelebA path
 from timer import Timer
 from util import parameter_ema
 
 path = "data"
-h_size = 4
+h_size = 64
 # Epochs to train for (an epoch is 1 training run over the dataset)
-epochs = 200
+epochs = 2000
 # Minibatch size
 batch_size = 64
 # Learning rate
 lr = 0.0001
+# Weight decay
+weight_decay = 0.0
 # Number of timesteps T
 T = 1000
 # Number of evaluation samples
@@ -41,22 +43,36 @@ cuda = True
 use32 = False
 # Exponential moving averaging rate over model weights (default 0.9999 in paper)
 ema_rate = 0.9999
+# Use Group Normalization
+use_norm = False
+# Load models
+load_models = False
 
 # === Define the prediction model ===
-if use32:
-    model = UNetCelebA32(h_size)
-    model_eval = UNetCelebA32(h_size)
+if load_models:
+    model = torch.load("model.pt")
+    model_eval = torch.load("model_eval.pt")
 else:
-    model = UNetCelebA(h_size)
-    model_eval = UNetCelebA(h_size)
+    if use32:
+        model = UResNetCelebA32(h_size, use_norm=use_norm)
+        model_eval = UResNetCelebA32(h_size, use_norm=use_norm)
+    else:
+        model = UResNetCelebA(h_size, use_norm=use_norm)
+        model_eval = UResNetCelebA(h_size, use_norm=use_norm)
 
-if cuda:
-    model = model.cuda()
-    model_eval = model_eval.cuda()
+    if cuda:
+        model = model.cuda()
+        model_eval = model_eval.cuda()
 
-parameter_ema(model_eval, model, True)
-
-opt = AdamW(model.parameters(), lr, weight_decay=0.01)
+    parameter_ema(model_eval, model, True)
+if load_models:
+    opt = torch.load("opt.pt")
+    # Update to new learning rate
+    for g in opt.param_groups:
+        g['lr'] = lr
+        g['weight_decay'] = weight_decay
+else:
+    opt = AdamW(model.parameters(), lr, weight_decay=weight_decay)
 res = 32 if use32 else 64
 
 
@@ -95,17 +111,19 @@ x_T_eval = torch.normal(0.0, 1.0, (n_eval_samples, 3, res, res))
 if cuda:
     x_T_eval = x_T_eval.cuda()
 
+
 # === Eval function definition ===
 def evaluate(epoch=None):
     model_eval.eval()
-    xlist = [(x_T_eval[0] + 1.0)/2.0]
+    xlist = [(x_T_eval[0] + 1.0) / 2.0]
     with torch.no_grad():
         ones = torch.ones((n_eval_samples, 1), dtype=torch.float32)
         if cuda:
             ones = ones.cuda()
 
         x_t = x_T_eval
-        for t_val in range(T, 0, -1):
+        # Starting at T seems to cause divergence somehow. Starting at T-1 seems to yield normal images.
+        for t_val in range(T - 1, 0, -1):
             t = ones * t_val
             alpha_cumulative_t = dm.alpha_hat(t, T).view(-1, 1, 1, 1)
             beta = dm.beta(t, T).view(-1, 1, 1, 1)
@@ -122,8 +140,8 @@ def evaluate(epoch=None):
 
             # Set x t to x t-1 (and clamp the values to known ranges so everything stays in line
             x_t = x_prev
-            if t_val%(T//10) == 1:
-                xlist.append((x_t[0, :] + 1.0)/2.0)
+            if t_val % (T // 10) == 1:
+                xlist.append((x_t[0, :] + 1.0) / 2.0)
 
         x0 = x_t
         x0 = x0.view(-1, 3, res, res)
@@ -137,7 +155,8 @@ def evaluate(epoch=None):
         else:
             torchvision.utils.save_image(x0.clamp(0, 1), "results/celeba_trained_epoch_%05d.png" % epoch)
             torchvision.utils.save_image(x0, "results/norm_celeba_trained_epoch_%05d.png" % epoch, normalize=True)
-            torchvision.utils.save_image(torch.stack(xlist, dim=0), "results/diff_celeba_trained_%05d.png" % epoch, nrow=100)
+            torchvision.utils.save_image(torch.stack(xlist, dim=0), "results/diff_celeba_trained_%05d.png" % epoch,
+                                         nrow=100)
         model_eval.train()
 
 
@@ -146,10 +165,14 @@ timer.set()
 try:
     for epoch in range(epochs):
         model.train()
+        loss_sum = 0.0
+        epoch_length = len(dataloader)
         for x, _ in dataloader:
             timer.log_and_set("loading")
             opt.zero_grad()
-            t = torch.floor(torch.rand((batch_size, 1)) * (T - 1) + 1)
+            t = torch.floor(torch.rand((batch_size, 1)) * T + 1)
+            # Catch the very rare edge case
+            t[t == T + 1] = T
             eps = torch.normal(0.0, 1.0, (batch_size, 3, res, res))
             alpha_cumulative_t = dm.alpha_hat(t, T).view(-1, 1, 1, 1)
             timer.log_and_set("initializing")
@@ -175,9 +198,10 @@ try:
             parameter_ema(model_eval, model, rate=ema_rate)
 
             timer.log_and_set("optimizing")
-        loss_v = loss.detach().item()
+            loss_sum += loss.detach().item()
+        loss_v = loss_sum / epoch_length
         print(f"Epoch {epoch}/{epochs}, loss={loss_v}")
-        if epoch % 1 == 0:
+        if epoch % 3 == 0:
             evaluate(epoch)
             torch.save(model_eval, "model_eval.pt")
             torch.save(model, "model.pt")

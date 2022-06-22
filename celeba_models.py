@@ -11,8 +11,10 @@ import torch.nn
 # 32
 # 64
 
-from torch import selu
+from torch import selu, relu
 from torch.nn import Conv2d, ConvTranspose2d, Linear
+
+from modules import ResNetDownBlock, ResNetUpBlock
 
 
 def transparent_norm(x):
@@ -114,6 +116,66 @@ class UNetCelebA(torch.nn.Module):
         return x
 
 
+class UResNetCelebA(torch.nn.Module):
+    """
+        UNet-like Resnet, with t input at the start. Same as the model above, but for 32x32
+        Skip connections are done via concatenation, on same spatial resolution levels.
+    """
+
+    def __init__(self, h_size, use_norm=False):
+        super().__init__()
+        self.h_size = h_size
+
+        self.conv_down_1 = ResNetDownBlock(4, h_size, downscale=True, use_norm=use_norm)
+        self.conv_down_2 = ResNetDownBlock(h_size, h_size * 2, downscale=True, use_norm=use_norm)
+        self.conv_down_3 = ResNetDownBlock(h_size * 2, h_size * 4, downscale=True, use_norm=use_norm)
+        self.conv_down_4 = ResNetDownBlock(h_size * 4, h_size * 8, downscale=True, use_norm=use_norm)
+
+        self.linear_1 = Linear(4 * 4 * h_size * 8, h_size * 16)
+        self.linear_2 = Linear(h_size * 16 + 1, 4 * 4 * h_size * 8)
+
+        self.conv_up_1 = ResNetUpBlock(h_size * 16, h_size * 4, upscale=True, use_norm=use_norm)
+        self.conv_up_2 = ResNetUpBlock(h_size * 8, h_size * 2, upscale=True, use_norm=use_norm)
+        self.conv_up_3 = ResNetUpBlock(h_size * 4, h_size, upscale=True, use_norm=use_norm)
+        self.conv_up_4 = ResNetUpBlock(h_size * 2, h_size, upscale=True, use_norm=use_norm)
+
+        self.conv_out = ResNetDownBlock(h_size, 3, downscale=False, output=True, use_norm=False)
+
+        self.output_bias = torch.nn.Parameter(torch.zeros((3, 64, 64)), requires_grad=True)
+
+    def forward(self, x, t):
+        t_vec = torch.ones_like(x)[:, :1] * t.view(-1, 1, 1, 1)
+        x = torch.cat([x, t_vec], dim=1)
+
+        x32 = self.conv_down_1(x)
+
+        x16 = self.conv_down_2(x32)
+
+        x8 = self.conv_down_3(x16)
+
+        x4 = self.conv_down_4(x8)
+
+        x = x4.view(-1, 4 * 4 * self.h_size * 8)
+        x = self.linear_1(x)
+        x = relu(x)
+
+        x = self.linear_2(torch.cat([x, t], dim=1))
+        x = relu(x)
+        x = x.view(-1, self.h_size * 8, 4, 4)
+
+        x = self.conv_up_1(torch.cat([x, x4], dim=1))
+
+        x = self.conv_up_2(torch.cat([x, x8], dim=1))
+
+        x = self.conv_up_3(torch.cat([x, x16], dim=1))
+
+        x = self.conv_up_4(torch.cat([x, x32], dim=1))
+
+        x = self.conv_out(x)
+        x = self.output_bias + x
+        return x
+
+
 class UNetCelebA32(torch.nn.Module):
     """
         Simple UNet-like convnet, with t input at the start. Same as the model above, but for 32x32
@@ -199,14 +261,68 @@ class UNetCelebA32(torch.nn.Module):
         return x
 
 
+class UResNetCelebA32(torch.nn.Module):
+    """
+        Simple UNet-like Resnet, with t input at the start. Same as the model above, but for 32x32
+        Skip connections are done via concatenation, on same spatial resolution levels.
+    """
+
+    def __init__(self, h_size, use_norm=False):
+        super().__init__()
+        self.h_size = h_size
+
+        self.conv_down_1 = ResNetDownBlock(4, h_size, downscale=True, use_norm=use_norm)
+        self.conv_down_2 = ResNetDownBlock(h_size, h_size * 2, downscale=True, use_norm=use_norm)
+        self.conv_down_3 = ResNetDownBlock(h_size * 2, h_size * 4, downscale=True, use_norm=use_norm)
+
+        self.linear_1 = Linear(4 * 4 * h_size * 4, h_size * 8)
+        self.linear_2 = Linear(h_size * 8 + 1, 4 * 4 * h_size * 4)
+
+        self.conv_up_2 = ResNetUpBlock(h_size * 8, h_size * 2, upscale=True, use_norm=use_norm)
+        self.conv_up_3 = ResNetUpBlock(h_size * 4, h_size, upscale=True, use_norm=use_norm)
+        self.conv_up_4 = ResNetUpBlock(h_size * 2, h_size, upscale=True, use_norm=use_norm)
+
+        self.conv_out = ResNetDownBlock(h_size, 3, downscale=False, output=True, use_norm=False)
+
+        self.output_bias = torch.nn.Parameter(torch.zeros((3, 32, 32)), requires_grad=True)
+
+    def forward(self, x, t):
+        t_vec = torch.ones_like(x)[:, :1] * t.view(-1, 1, 1, 1)
+        x = torch.cat([x, t_vec], dim=1)
+
+        x16 = self.conv_down_1(x)
+
+        x8 = self.conv_down_2(x16)
+
+        x4 = self.conv_down_3(x8)
+
+        x = x4.view(-1, 4 * 4 * self.h_size * 4)
+        x = self.linear_1(x)
+        x = relu(x)
+
+        x = self.linear_2(torch.cat([x, t], dim=1))
+        x = relu(x)
+        x = x.view(-1, self.h_size * 4, 4, 4)
+
+        x = self.conv_up_2(torch.cat([x, x4], dim=1))
+
+        x = self.conv_up_3(torch.cat([x, x8], dim=1))
+
+        x = self.conv_up_4(torch.cat([x, x16], dim=1))
+
+        x = self.conv_out(x)
+        x = self.output_bias + x
+        return x
+
+
 if __name__ == "__main__":
-    net = UNetCelebA(8)
+    net = UResNetCelebA(8)
     x = torch.normal(0, 1, (6, 3, 64, 64))
     t = torch.rand((6, 1))
 
     print(net(x, t).size())
 
-    net = UNetCelebA32(8)
+    net = UResNetCelebA32(8)
     x = torch.normal(0, 1, (6, 3, 32, 32))
     t = torch.rand((6, 1))
 
