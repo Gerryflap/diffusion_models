@@ -17,6 +17,7 @@ class ResNetDownBlock(torch.nn.Module):
 
         self.use_norm = use_norm
         self.norm = GroupNorm(norm_groups, out_size)
+        self.norm2 = GroupNorm(norm_groups, out_size)
 
         # Assuming both the carried signal and the output of our layers are standard normal,
         #       we have to divide by sqrt(2) in order to make the sum of these 2 standard normal
@@ -33,6 +34,8 @@ class ResNetDownBlock(torch.nn.Module):
 
         x = self.conv_2(x)
         if not self.output:
+            if self.use_norm:
+                x = self.norm2(x)
             x = torch.relu(x)
 
         if self.ch_conv is not None:
@@ -62,6 +65,7 @@ class ResNetUpBlock(torch.nn.Module):
 
         self.use_norm = use_norm
         self.norm = GroupNorm(norm_groups, out_size)
+        self.norm2 = GroupNorm(norm_groups, out_size)
 
         # Assuming both the carried signal and the output of our layers are standard normal,
         #       we have to divide by sqrt(2) in order to make the sum of these 2 standard normal
@@ -78,6 +82,8 @@ class ResNetUpBlock(torch.nn.Module):
 
         x = self.conv_2(x)
         if not self.output:
+            if self.use_norm:
+                x = self.norm2(x)
             x = torch.relu(x)
 
         if self.ch_conv is not None:

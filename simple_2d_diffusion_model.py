@@ -12,11 +12,13 @@ from torch.nn import Linear, Tanh
 from torch.nn.modules import Sequential
 from torch.optim.rmsprop import RMSprop
 from torch.utils.data import DataLoader, TensorDataset
-import diffusion_models as dm
 import matplotlib.pyplot as plt
 
 # === Hyper parameters for this experiment ===
 # Hidden layer size
+from schedules.cosine_schedule import CosineSchedule
+from schedules.linear_schedule import LinearSchedule
+
 h_size = 64
 # The (x,y) coordinates of the "modes" in the dataset. 2D normal distributions will be generated around these modes
 modes = [(1, -1), (-1, -1), (0, 1)]
@@ -25,15 +27,23 @@ mode_std = 0.1
 # The number of samples per mode
 n_samples_per_mode = 1000
 # Epochs to train for (an epoch is 1 training run over the dataset)
-epochs = 200
+epochs = 400
 # Minibatch size
 batch_size = 64
 # Learning rate
-lr = 0.001
+lr = 0.0003
 # Number of timesteps T
 T = 1000
 # Number of evaluation samples
 n_eval_samples = 1000
+# Use cosine schedule (instead of linear, should improve training)
+use_cosine_schedule = False
+
+# === Noise schedule ===
+if use_cosine_schedule:
+    sched = CosineSchedule(T)
+else:
+    sched = LinearSchedule(T)
 
 # === Define the prediction model as a simple neural network ===
 model = Sequential(
@@ -52,7 +62,7 @@ opt = RMSprop(model.parameters(), lr)
 
 # === Model sigma at time t ===
 def sigma(t):
-    sigm = dm.beta(t, T)
+    sigm = sched.get_betas(t)
     sigm[t <= 1] = 0.0
     return torch.sqrt(sigm)
 
@@ -79,7 +89,7 @@ for epoch in range(epochs):
         opt.zero_grad()
         t = torch.floor(torch.rand((batch_size, 1)) * (T - 1) + 1)
         eps = torch.normal(0, 1, (batch_size, 2))
-        alpha_cumulative_t = dm.alpha_hat(t, T)
+        alpha_cumulative_t = sched.get_alpha_hats(t)
 
         x_after = torch.sqrt(alpha_cumulative_t) * x
         x_after += torch.sqrt(1.0 - alpha_cumulative_t) * eps
@@ -100,9 +110,9 @@ xs = []
 x_t = x_T
 for t_val in range(T, 0, -1):
     t = ones * t_val
-    alpha_cumulative_t = dm.alpha_hat(t, T)
+    alpha_cumulative_t = sched.get_alpha_hats(t)
     alpha_cumulative_t[alpha_cumulative_t == 0.0] = 1e-6
-    beta = dm.beta(t, T)
+    beta = sched.get_betas(t)
 
     model_inp = torch.cat([x_t, t / float(T)], dim=1)
     pred = model(model_inp)
@@ -121,8 +131,10 @@ print(x0)
 fig, ax = plt.subplots()
 scatter = ax.scatter(x_T[:, 0].detach().numpy(), x_T[:, 1].detach().numpy())
 
+
 def update(i):
-    scatter.set_offsets(xs[i*10])
+    scatter.set_offsets(xs[i * 10])
+
 
 ani = animation.FuncAnimation(fig, update, interval=33, frames=100)
 ani.save("diffusion.gif", writer="imagemagick")

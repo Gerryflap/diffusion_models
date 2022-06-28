@@ -1,29 +1,37 @@
 import torch
 import torchvision
 
-import diffusion_models as dm
+from schedules.cosine_schedule import CosineSchedule
+from schedules.linear_schedule import LinearSchedule
 
 cuda = True
 
-model_eval = torch.load("model_eval.pt")
+model_eval = torch.load("ffhq64_large/model_eval.pt")
 n_eval_samples = 64
 res = 64
 x_T_eval = torch.normal(0, 1, (n_eval_samples, 3, res, res))
 x_T_eval = x_T_eval.cuda()
 T = 1000
-t_start = T-1
+t_start = T-80
+# Use cosine schedule (instead of linear. Depends on the model you trained (probably))
+use_cosine_schedule = True
+
+# === Noise schedule ===
+if use_cosine_schedule:
+    sched = CosineSchedule(T)
+else:
+    sched = LinearSchedule(T)
 
 
 def sigma(t):
-    sigm = dm.beta(t, T)
+    sigm = sched.get_betas(t)
     sigm[t <= 1] = 0.0
     return torch.sqrt(sigm)
 
 
 T_as_tensor = torch.ones(1, ) * T
-print("Beta: ", dm.beta(T_as_tensor, T))
-print("Alpha_hat: ", dm.alpha_hat(T_as_tensor, T))
-print("Beta_hat: ", dm.beta_hat(T_as_tensor, T))
+print("Beta: ", sched.get_betas(T_as_tensor))
+print("Alpha_hat: ", sched.get_alpha_hats(T_as_tensor))
 
 
 # === Eval function definition ===
@@ -38,8 +46,8 @@ def evaluate():
         x_t = x_T_eval
         for t_val in range(t_start, 0, -1):
             t = ones * t_val
-            alpha_cumulative_t = dm.alpha_hat(t, T).view(-1, 1, 1, 1)
-            beta = dm.beta(t, T).view(-1, 1, 1, 1)
+            alpha_cumulative_t = sched.get_alpha_hats(t).view(-1, 1, 1, 1)
+            beta = sched.get_betas(t).view(-1, 1, 1, 1)
             sigm = sigma(t).view(-1, 1, 1, 1)
             if cuda:
                 alpha_cumulative_t = alpha_cumulative_t.cuda()

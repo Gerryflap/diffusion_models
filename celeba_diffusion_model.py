@@ -8,18 +8,18 @@
 import torch
 import torchvision.utils
 from torch.optim import Adam, AdamW
-from torch.optim.rmsprop import RMSprop
 from torch.utils.data import DataLoader
-from torchvision.datasets import CelebA, MNIST
 from torchvision.transforms import ToTensor, Compose, CenterCrop, Resize, Lambda
 
-import diffusion_models as dm
 
 # === Hyper parameters for this experiment ===
 # Hidden layer size
-from celeba_models import UNetCelebA, UNetCelebA32, UResNetCelebA32, UResNetCelebA
+from celeba_models import UResNetCelebA32, UResNetCelebA
 
 # CelebA path
+from image_dataset import ImageDataset
+from schedules.cosine_schedule import CosineSchedule
+from schedules.linear_schedule import LinearSchedule
 from timer import Timer
 from util import parameter_ema
 
@@ -28,7 +28,7 @@ h_size = 64
 # Epochs to train for (an epoch is 1 training run over the dataset)
 epochs = 2000
 # Minibatch size
-batch_size = 64
+batch_size = 128
 # Learning rate
 lr = 0.0001
 # Weight decay
@@ -44,9 +44,11 @@ use32 = False
 # Exponential moving averaging rate over model weights (default 0.9999 in paper)
 ema_rate = 0.9999
 # Use Group Normalization
-use_norm = False
+use_norm = True
 # Load models
 load_models = False
+# Use cosine schedule (instead of linear, should improve training)
+use_cosine_schedule = False
 
 # === Define the prediction model ===
 if load_models:
@@ -65,8 +67,12 @@ else:
         model_eval = model_eval.cuda()
 
     parameter_ema(model_eval, model, True)
+
+opt = AdamW(model.parameters(), lr, weight_decay=weight_decay)
 if load_models:
-    opt = torch.load("opt.pt")
+    opt_old = torch.load("opt.pt")
+    opt.load_state_dict(opt_old.state_dict())
+
     # Update to new learning rate
     for g in opt.param_groups:
         g['lr'] = lr
@@ -75,23 +81,39 @@ else:
     opt = AdamW(model.parameters(), lr, weight_decay=weight_decay)
 res = 32 if use32 else 64
 
+# === Noise schedule ===
+if use_cosine_schedule:
+    sched = CosineSchedule(T)
+else:
+    sched = LinearSchedule(T)
 
 # === Model sigma at time t ===
 def sigma(t):
-    sigm = dm.beta(t, T)
+    sigm = sched.get_betas(t)
     sigm[t <= 1] = 0.0
     return torch.sqrt(sigm)
 
 
 # === Training ===
-dataset = CelebA(path,
+# dataset = CelebA(path,
+#                  transform=Compose([
+#                      CenterCrop(178),
+#                      Resize(res),
+#                      ToTensor(),
+#                      Lambda(lambda tensor: tensor * 2.0 - 1.0)
+#                  ]),
+#                  download=True)
+
+dataset = ImageDataset("/run/media/gerben/LinuxData/data/ffhq_thumbnails/cropped_faces64",
                  transform=Compose([
-                     CenterCrop(178),
-                     Resize(res),
                      ToTensor(),
                      Lambda(lambda tensor: tensor * 2.0 - 1.0)
-                 ]),
-                 download=True)
+                 ]))
+# dataset = ImageDataset("/run/media/gerben/LinuxData/data/celeba/cropped_faces64",
+#                  transform=Compose([
+#                      ToTensor(),
+#                      Lambda(lambda tensor: tensor * 2.0 - 1.0)
+#                  ]))
 # dataset = MNIST(path,
 #                  transform=Compose([
 #                      Resize(res),
@@ -100,7 +122,7 @@ dataset = CelebA(path,
 #                      Lambda(lambda tensor: tensor * 2.0 - 1.0)
 #                  ]),
 #                  download=True)
-dataloader = DataLoader(dataset, batch_size, shuffle=True, drop_last=True, num_workers=4)
+dataloader = DataLoader(dataset, batch_size, shuffle=False, drop_last=True, num_workers=4)
 
 x = dataloader.__iter__().__next__()[0]
 print(x.size(), x.min(), x.max())
@@ -125,8 +147,8 @@ def evaluate(epoch=None):
         # Starting at T seems to cause divergence somehow. Starting at T-1 seems to yield normal images.
         for t_val in range(T - 1, 0, -1):
             t = ones * t_val
-            alpha_cumulative_t = dm.alpha_hat(t, T).view(-1, 1, 1, 1)
-            beta = dm.beta(t, T).view(-1, 1, 1, 1)
+            alpha_cumulative_t = sched.get_alpha_hats(t).view(-1, 1, 1, 1)
+            beta = sched.get_betas(t).view(-1, 1, 1, 1)
             sigm = sigma(t).view(-1, 1, 1, 1)
             if cuda:
                 alpha_cumulative_t = alpha_cumulative_t.cuda()
@@ -174,7 +196,7 @@ try:
             # Catch the very rare edge case
             t[t == T + 1] = T
             eps = torch.normal(0.0, 1.0, (batch_size, 3, res, res))
-            alpha_cumulative_t = dm.alpha_hat(t, T).view(-1, 1, 1, 1)
+            alpha_cumulative_t = sched.get_alpha_hats(t).view(-1, 1, 1, 1)
             timer.log_and_set("initializing")
             if cuda:
                 x = x.cuda()
