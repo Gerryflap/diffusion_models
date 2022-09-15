@@ -12,7 +12,7 @@ import torch.nn
 # 64
 
 from torch import selu, relu
-from torch.nn import Conv2d, ConvTranspose2d, Linear
+from torch.nn import Conv2d, ConvTranspose2d, Linear, GroupNorm
 
 from modules import ResNetDownBlock, ResNetUpBlock
 
@@ -125,8 +125,9 @@ class UResNetCelebA(torch.nn.Module):
     def __init__(self, h_size, use_norm=False):
         super().__init__()
         self.h_size = h_size
+        self.use_norm = use_norm
 
-        self.conv_down_1 = ResNetDownBlock(4, h_size, downscale=True, use_norm=use_norm)
+        self.conv_down_1 = ResNetDownBlock(4, h_size, downscale=True, use_norm=False)
         self.conv_down_2 = ResNetDownBlock(h_size, h_size * 2, downscale=True, use_norm=use_norm)
         self.conv_down_3 = ResNetDownBlock(h_size * 2, h_size * 4, downscale=True, use_norm=use_norm)
         self.conv_down_4 = ResNetDownBlock(h_size * 4, h_size * 8, downscale=True, use_norm=use_norm)
@@ -139,9 +140,12 @@ class UResNetCelebA(torch.nn.Module):
         self.conv_up_3 = ResNetUpBlock(h_size * 4, h_size, upscale=True, use_norm=use_norm)
         self.conv_up_4 = ResNetUpBlock(h_size * 2, h_size, upscale=True, use_norm=use_norm)
 
-        self.conv_out = ResNetDownBlock(h_size, 3, downscale=False, output=True, use_norm=False)
+        # self.conv_out = ResNetDownBlock(h_size, 3, downscale=False, output=True, use_norm=False)
+        self.conv_out = Conv2d(h_size, 3, kernel_size=1)
 
-        self.output_bias = torch.nn.Parameter(torch.zeros((3, 64, 64)), requires_grad=True)
+        if use_norm:
+            self.norm_lin_1 = GroupNorm(8, h_size*16)
+            self.norm_lin_2 = GroupNorm(8, h_size * 8)
 
     def forward(self, x, t):
         t_vec = torch.ones_like(x)[:, :1] * t.view(-1, 1, 1, 1)
@@ -157,11 +161,15 @@ class UResNetCelebA(torch.nn.Module):
 
         x = x4.view(-1, 4 * 4 * self.h_size * 8)
         x = self.linear_1(x)
+        if hasattr(self, "norm_lin_1"):
+            x = self.norm_lin_1(x)
         x = relu(x)
 
         x = self.linear_2(torch.cat([x, t], dim=1))
-        x = relu(x)
         x = x.view(-1, self.h_size * 8, 4, 4)
+        if hasattr(self, "norm_lin_2"):
+            x = self.norm_lin_2(x)
+        x = relu(x)
 
         x = self.conv_up_1(torch.cat([x, x4], dim=1))
 
@@ -172,7 +180,6 @@ class UResNetCelebA(torch.nn.Module):
         x = self.conv_up_4(torch.cat([x, x32], dim=1))
 
         x = self.conv_out(x)
-        x = self.output_bias + x
         return x
 
 

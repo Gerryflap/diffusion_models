@@ -10,17 +10,21 @@ class LinearSchedule:
 
         a_hat = 1.0
         for i in range(0, T):
-            a_hat = self.alphas[i]*a_hat
+            a_hat = self.alphas[i] * a_hat
             self.alpha_hats[i] = a_hat
 
     def get_alphas(self, t):
-        return self.alphas[torch.floor(t).long()-1]
+        return self.alphas[torch.floor(t).long() - 1]
 
     def get_betas(self, t):
-        return self.betas[torch.floor(t).long()-1]
+        return self.betas[torch.floor(t).long() - 1]
 
     def get_alpha_hats(self, t):
-        return self.alpha_hats[torch.floor(t).long()-1]
+        t[t < 1] = 1
+        t[t > self.T] = self.T
+        return self.alpha_hats[torch.floor(t).long() - 1]
 
-
-
+    def get_beta_hats(self, t):
+        a_hat_t = self.get_alpha_hats(t)
+        a_hat_tmin = self.get_alpha_hats(t - 1.0)
+        return self.get_betas(t) * (1.0 - a_hat_tmin) / (1.0 - a_hat_t)

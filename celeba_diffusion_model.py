@@ -9,26 +9,24 @@ import torch
 import torchvision.utils
 from torch.optim import Adam, AdamW
 from torch.utils.data import DataLoader
-from torchvision.transforms import ToTensor, Compose, CenterCrop, Resize, Lambda
-
-
-# === Hyper parameters for this experiment ===
-# Hidden layer size
+from torchvision.transforms import ToTensor, Compose, CenterCrop, Resize, Lambda, InterpolationMode
 from celeba_models import UResNetCelebA32, UResNetCelebA
-
-# CelebA path
 from image_dataset import ImageDataset
 from schedules.cosine_schedule import CosineSchedule
 from schedules.linear_schedule import LinearSchedule
 from timer import Timer
 from util import parameter_ema
 
+# === Hyper parameters for this experiment ===
+
+# CelebA path
 path = "data"
+# Hidden layer size
 h_size = 64
 # Epochs to train for (an epoch is 1 training run over the dataset)
-epochs = 2000
+epochs = 200000
 # Minibatch size
-batch_size = 128
+batch_size = 64
 # Learning rate
 lr = 0.0001
 # Weight decay
@@ -44,11 +42,13 @@ use32 = False
 # Exponential moving averaging rate over model weights (default 0.9999 in paper)
 ema_rate = 0.9999
 # Use Group Normalization
-use_norm = True
+use_norm = False
 # Load models
 load_models = False
 # Use cosine schedule (instead of linear, should improve training)
-use_cosine_schedule = False
+use_cosine_schedule = True
+# Output images etc every n steps
+output_every_n = 3
 
 # === Define the prediction model ===
 if load_models:
@@ -77,8 +77,7 @@ if load_models:
     for g in opt.param_groups:
         g['lr'] = lr
         g['weight_decay'] = weight_decay
-else:
-    opt = AdamW(model.parameters(), lr, weight_decay=weight_decay)
+
 res = 32 if use32 else 64
 
 # === Noise schedule ===
@@ -223,7 +222,7 @@ try:
             loss_sum += loss.detach().item()
         loss_v = loss_sum / epoch_length
         print(f"Epoch {epoch}/{epochs}, loss={loss_v}")
-        if epoch % 3 == 0:
+        if epoch % output_every_n == 0:
             evaluate(epoch)
             torch.save(model_eval, "model_eval.pt")
             torch.save(model, "model.pt")

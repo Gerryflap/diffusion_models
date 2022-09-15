@@ -25,3 +25,10 @@ plt.title(r"$\beta_t$ for linear and cosine schedules")
 plt.xlabel(r"$t$")
 plt.ylabel(r"$\beta_t$")
 plt.show()
+
+# Beta_hat vs beta for cosine
+plt.plot(ts, cos_sched.get_beta_hats(ts)/cos_sched.get_betas(ts))
+plt.legend()
+plt.title(r"$\hat{\beta_t}$ and $\beta$ for cosine schedule")
+plt.xlabel(r"$t$")
+plt.show()

@@ -8,7 +8,7 @@
 
 import torch
 from matplotlib import animation
-from torch.nn import Linear, Tanh
+from torch.nn import Linear, Tanh, GroupNorm
 from torch.nn.modules import Sequential
 from torch.optim.rmsprop import RMSprop
 from torch.utils.data import DataLoader, TensorDataset
@@ -49,9 +49,11 @@ else:
 model = Sequential(
     # 3 inputs, 2 for data and 1 for t
     Linear(3, h_size),
+    GroupNorm(8, h_size),
     Tanh(),
 
     Linear(h_size, h_size),
+    GroupNorm(8, h_size),
     Tanh(),
 
     Linear(h_size, 2),
