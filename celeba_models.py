@@ -1,4 +1,7 @@
 import torch.nn
+"""
+    Legacy model definitions for loading the old trained models
+"""
 
 # 64
 # 32

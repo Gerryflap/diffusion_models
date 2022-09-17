@@ -9,15 +9,13 @@ from schedules.linear_schedule import LinearSchedule
 
 cuda = True
 
-model_eval = torch.load("trained_models/ffhq64_large/model_eval.pt")
-# model_eval = torch.load("model_eval.pt")
+# model_eval = torch.load("trained_models/ffhq64_large/model_eval.pt")
+model_eval = torch.load("model_eval.pt")
 n_eval_samples = 64
 res = 64
-eta = 0.0   # Noise factor, 0.0 for DDIM, 1.0 for DDPM
-x_T_eval = torch.normal(0, 1, (n_eval_samples, 3, res, res))
-x_T_eval = x_T_eval.cuda()
-T = 1000
-S = 50
+eta = 1.0   # Noise factor, 0.0 for DDIM, 1.0 for DDPM
+seed = 42
+T = 100
 t_start = T-1
 # Use cosine schedule (instead of linear. Depends on the model you trained (probably))
 use_cosine_schedule = True
@@ -41,6 +39,11 @@ T_as_tensor = torch.ones(1, ) * T
 print("Beta: ", sched.get_betas(T_as_tensor))
 print("Alpha_hat: ", sched.get_alpha_hats(T_as_tensor))
 
+generator = torch.Generator()
+generator.manual_seed(seed)
+x_T_eval = torch.normal(0, 1, (n_eval_samples, 3, res, res), generator=generator)
+x_T_eval = x_T_eval.cuda()
+torch.manual_seed(seed)
 
 # === Eval function definition ===
 def evaluate():

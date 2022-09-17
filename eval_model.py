@@ -10,10 +10,12 @@ cuda = True
 model_eval = torch.load("model_eval.pt")
 n_eval_samples = 64
 res = 64
-x_T_eval = torch.normal(0, 1, (n_eval_samples, 3, res, res))
-x_T_eval = x_T_eval.cuda()
+seed = 42
 T = 1000
-t_start = T-20
+t_start = T
+# Pretend the first N steps (T to T-N) are at timestep T-N to avoid over saturated or broken images
+# (advised: N=50 at T=1000)
+skip_N_t_steps = 50
 # Use cosine schedule (instead of linear. Depends on the model you trained (probably))
 use_cosine_schedule = True
 
@@ -34,6 +36,11 @@ T_as_tensor = torch.ones(1, ) * T
 print("Beta: ", sched.get_betas(T_as_tensor))
 print("Alpha_hat: ", sched.get_alpha_hats(T_as_tensor))
 
+generator = torch.Generator()
+generator.manual_seed(seed)
+x_T_eval = torch.normal(0, 1, (n_eval_samples, 3, res, res), generator=generator)
+x_T_eval = x_T_eval.cuda()
+torch.manual_seed(seed)
 
 # === Eval function definition ===
 def evaluate():
@@ -46,7 +53,10 @@ def evaluate():
 
         x_t = x_T_eval
         for t_val in range(t_start, 0, -1):
-            t = ones * t_val
+            t_val_model = t_val
+            if t_val_model > T-skip_N_t_steps:
+                t_val_model = T-skip_N_t_steps
+            t = ones * t_val_model
             alpha_cumulative_t = sched.get_alpha_hats(t).view(-1, 1, 1, 1)
             beta = sched.get_betas(t).view(-1, 1, 1, 1)
             sigm = sigma(t).view(-1, 1, 1, 1)

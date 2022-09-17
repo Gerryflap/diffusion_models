@@ -11,6 +11,7 @@ from torch.optim import Adam, AdamW
 from torch.utils.data import DataLoader
 from torchvision.transforms import ToTensor, Compose, CenterCrop, Resize, Lambda, InterpolationMode
 from celeba_models import UResNetCelebA32, UResNetCelebA
+from image_models import UResNet64
 from image_dataset import ImageDataset
 from schedules.cosine_schedule import CosineSchedule
 from schedules.linear_schedule import LinearSchedule
@@ -49,6 +50,10 @@ load_models = False
 use_cosine_schedule = True
 # Output images etc every n steps
 output_every_n = 3
+# Use sinusoidal embedding of t (recommended!)
+use_sin_embedding = True
+# During evaluation of the model, pretend t=T-N instead of t for the first N steps
+skip_N_t_steps = 50
 
 # === Define the prediction model ===
 if load_models:
@@ -56,11 +61,12 @@ if load_models:
     model_eval = torch.load("model_eval.pt")
 else:
     if use32:
+        print("WARNING: 32x32 is using legacy models at the moment!!!")
         model = UResNetCelebA32(h_size, use_norm=use_norm)
         model_eval = UResNetCelebA32(h_size, use_norm=use_norm)
     else:
-        model = UResNetCelebA(h_size, use_norm=use_norm)
-        model_eval = UResNetCelebA(h_size, use_norm=use_norm)
+        model = UResNet64(h_size, use_norm=use_norm, use_sin_embedding=use_sin_embedding)
+        model_eval = UResNet64(h_size, use_norm=use_norm, use_sin_embedding=use_sin_embedding)
 
     if cuda:
         model = model.cuda()
@@ -145,7 +151,10 @@ def evaluate(epoch=None):
         x_t = x_T_eval
         # Starting at T seems to cause divergence somehow. Starting at T-1 seems to yield normal images.
         for t_val in range(T - 1, 0, -1):
-            t = ones * t_val
+            t_val_model = t_val
+            if t_val_model > T - skip_N_t_steps:
+                t_val_model = T - skip_N_t_steps
+            t = ones * t_val_model
             alpha_cumulative_t = sched.get_alpha_hats(t).view(-1, 1, 1, 1)
             beta = sched.get_betas(t).view(-1, 1, 1, 1)
             sigm = sigma(t).view(-1, 1, 1, 1)
