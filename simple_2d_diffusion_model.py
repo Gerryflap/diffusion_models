@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 # Hidden layer size
 from schedules.cosine_schedule import CosineSchedule
 from schedules.linear_schedule import LinearSchedule
+from sinusoidal_embedding import SinusoidalEmbedding
 
 h_size = 64
 # The (x,y) coordinates of the "modes" in the dataset. 2D normal distributions will be generated around these modes
@@ -27,7 +28,7 @@ mode_std = 0.1
 # The number of samples per mode
 n_samples_per_mode = 1000
 # Epochs to train for (an epoch is 1 training run over the dataset)
-epochs = 400
+epochs = 300
 # Minibatch size
 batch_size = 64
 # Learning rate
@@ -37,7 +38,9 @@ T = 1000
 # Number of evaluation samples
 n_eval_samples = 1000
 # Use cosine schedule (instead of linear, should improve training)
-use_cosine_schedule = False
+use_cosine_schedule = True
+# Encode the timestep in a sinusoidal embedding (instead of just dumping the normalized value straight into the NN)
+use_sin_embedding = True
 
 # === Noise schedule ===
 if use_cosine_schedule:
@@ -45,19 +48,35 @@ if use_cosine_schedule:
 else:
     sched = LinearSchedule(T)
 
+
 # === Define the prediction model as a simple neural network ===
-model = Sequential(
-    # 3 inputs, 2 for data and 1 for t
-    Linear(3, h_size),
-    GroupNorm(8, h_size),
-    Tanh(),
+class PredModel2D(torch.nn.Module):
+    def __init__(self, h_size, use_embedding=False, embedding_size=32):
+        super().__init__()
+        t_size = embedding_size if use_embedding else 1
+        self.model = Sequential(
+            # 3 inputs, 2 for data and 1 for t
+            Linear(2 + t_size, h_size),
+            Tanh(),
 
-    Linear(h_size, h_size),
-    GroupNorm(8, h_size),
-    Tanh(),
+            Linear(h_size, h_size),
+            Tanh(),
 
-    Linear(h_size, 2),
-)
+            Linear(h_size, 2),
+        )
+
+        self.sin_embedding = None
+        if use_embedding:
+            self.sin_embedding = SinusoidalEmbedding(embedding_size, T, 1.0)
+
+    def forward(self, inp, t):
+        if self.sin_embedding is not None:
+            t = self.sin_embedding(t)
+
+        return self.model(torch.cat([inp, t], dim=1))
+
+
+model = PredModel2D(h_size, use_embedding=use_sin_embedding)
 
 opt = RMSprop(model.parameters(), lr)
 
@@ -95,8 +114,7 @@ for epoch in range(epochs):
 
         x_after = torch.sqrt(alpha_cumulative_t) * x
         x_after += torch.sqrt(1.0 - alpha_cumulative_t) * eps
-        model_inp = torch.cat([x_after, t / T], dim=1)
-        prediction = model(model_inp)
+        prediction = model(x_after, t / T)
 
         loss = torch.sum(torch.square(eps - prediction)) / batch_size
 
@@ -116,8 +134,7 @@ for t_val in range(T, 0, -1):
     alpha_cumulative_t[alpha_cumulative_t == 0.0] = 1e-6
     beta = sched.get_betas(t)
 
-    model_inp = torch.cat([x_t, t / float(T)], dim=1)
-    pred = model(model_inp)
+    pred = model(x_t, t / float(T))
     x_prev = (x_t - (beta / torch.sqrt(1.0 - alpha_cumulative_t)) * pred) / (torch.sqrt(1.0 - beta))
     x_prev += sigma(t) * torch.randn_like(x_t)
 
