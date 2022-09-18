@@ -11,7 +11,8 @@ class ImageDataset(VisionDataset):
         super().__init__(folder, transforms=None, transform=transform, target_transform=target_transform)
 
         self.folder = folder
-        self.filename = [fname for fname in os.listdir(folder) if fname.endswith(".png") or fname.endswith(".jpg") or fname.endswith(".jpeg")]
+        self.filename = [fname for fname in os.listdir(folder) if
+                         fname.endswith(".png") or fname.endswith(".jpg") or fname.endswith(".jpeg")]
 
     def __getitem__(self, index):
         X = PIL.Image.open(os.path.join(self.folder, self.filename[index]))

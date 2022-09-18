@@ -9,9 +9,10 @@ import torch
 import torchvision.utils
 from torch.optim import Adam, AdamW
 from torch.utils.data import DataLoader
+from torchvision.datasets import CelebA, MNIST
 from torchvision.transforms import ToTensor, Compose, CenterCrop, Resize, Lambda, InterpolationMode
 from celeba_models import UResNetCelebA32, UResNetCelebA
-from image_models import UResNet64
+from image_models import UResNet64, UResNet
 from image_dataset import ImageDataset
 from schedules.cosine_schedule import CosineSchedule
 from schedules.linear_schedule import LinearSchedule
@@ -22,30 +23,30 @@ from util import parameter_ema
 
 # CelebA path
 path = "data"
-# Hidden layer size
+# Hidden layer size of the highest resolution layer (increases exponentially through downscales)
 h_size = 64
 # Epochs to train for (an epoch is 1 training run over the dataset)
 epochs = 200000
 # Minibatch size
 batch_size = 64
 # Learning rate
-lr = 0.0001
+lr = 0.0003
 # Weight decay
 weight_decay = 0.0
 # Number of timesteps T
 T = 1000
 # Number of evaluation samples
-n_eval_samples = 64
+n_eval_samples = 16
 # Use cuda
 cuda = True
-# use 32x32 instead of 64x64
-use32 = False
+# Resolution (as int, so 64x64 is 64. Should be 8 or higher, and a power of 2)
+res = 128
 # Exponential moving averaging rate over model weights (default 0.9999 in paper)
 ema_rate = 0.9999
 # Use Group Normalization
 use_norm = False
 # Load models
-load_models = False
+load_models = True
 # Use cosine schedule (instead of linear, should improve training)
 use_cosine_schedule = True
 # Output images etc every n steps
@@ -57,34 +58,29 @@ skip_N_t_steps = 50
 
 # === Define the prediction model ===
 if load_models:
-    model = torch.load("model.pt")
-    model_eval = torch.load("model_eval.pt")
+    model = torch.load("model.pt", map_location='cpu')
+    model_eval = torch.load("model_eval.pt", map_location='cpu')
 else:
-    if use32:
-        print("WARNING: 32x32 is using legacy models at the moment!!!")
-        model = UResNetCelebA32(h_size, use_norm=use_norm)
-        model_eval = UResNetCelebA32(h_size, use_norm=use_norm)
-    else:
-        model = UResNet64(h_size, use_norm=use_norm, use_sin_embedding=use_sin_embedding)
-        model_eval = UResNet64(h_size, use_norm=use_norm, use_sin_embedding=use_sin_embedding)
 
-    if cuda:
-        model = model.cuda()
-        model_eval = model_eval.cuda()
+    model = UResNet(h_size, res, use_norm=use_norm, use_sin_embedding=use_sin_embedding)
+    model_eval = UResNet(h_size, res, use_norm=use_norm, use_sin_embedding=use_sin_embedding)
 
+if cuda:
+    model = model.cuda()
+    model_eval = model_eval.cuda()
+
+if not load_models:
     parameter_ema(model_eval, model, True)
 
 opt = AdamW(model.parameters(), lr, weight_decay=weight_decay)
 if load_models:
-    opt_old = torch.load("opt.pt")
+    opt_old = torch.load("opt.pt", map_location='cpu')
     opt.load_state_dict(opt_old.state_dict())
 
     # Update to new learning rate
     for g in opt.param_groups:
         g['lr'] = lr
         g['weight_decay'] = weight_decay
-
-res = 32 if use32 else 64
 
 # === Noise schedule ===
 if use_cosine_schedule:
@@ -100,16 +96,28 @@ def sigma(t):
 
 
 # === Training ===
-# dataset = CelebA(path,
+# dataset = CelebA("/run/media/gerben/LinuxData/data",
 #                  transform=Compose([
 #                      CenterCrop(178),
 #                      Resize(res),
 #                      ToTensor(),
 #                      Lambda(lambda tensor: tensor * 2.0 - 1.0)
 #                  ]),
-#                  download=True)
+#                  download=False)
 
-dataset = ImageDataset("/run/media/gerben/LinuxData/data/ffhq_thumbnails/cropped_faces64",
+# dataset = ImageDataset("/run/media/gerben/LinuxData/data/ffhq_thumbnails/cropped_faces64",
+#                  transform=Compose([
+#                      ToTensor(),
+#                      Resize(res),
+#                      Lambda(lambda tensor: tensor * 2.0 - 1.0)
+#                  ]))
+# dataset = ImageDataset("/run/media/gerben/LinuxData/data/ffhq_full/images1024x1024/",
+#                  transform=Compose([
+#                      ToTensor(),
+#                      Resize(res, interpolation=InterpolationMode.NEAREST),
+#                      Lambda(lambda tensor: tensor * 2.0 - 1.0)
+#                  ]))
+dataset = ImageDataset("/run/media/gerben/LinuxData/data/ffhq_thumbnails/thumbnails128x128",
                  transform=Compose([
                      ToTensor(),
                      Lambda(lambda tensor: tensor * 2.0 - 1.0)
@@ -127,7 +135,7 @@ dataset = ImageDataset("/run/media/gerben/LinuxData/data/ffhq_thumbnails/cropped
 #                      Lambda(lambda tensor: tensor * 2.0 - 1.0)
 #                  ]),
 #                  download=True)
-dataloader = DataLoader(dataset, batch_size, shuffle=False, drop_last=True, num_workers=4)
+dataloader = DataLoader(dataset, batch_size, shuffle=False, drop_last=True, num_workers=0)
 
 x = dataloader.__iter__().__next__()[0]
 print(x.size(), x.min(), x.max())

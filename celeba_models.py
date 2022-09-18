@@ -27,7 +27,7 @@ def transparent_norm(x):
 def create_transparent_norm(s):
     return transparent_norm
 
-
+@DeprecationWarning
 class UNetCelebA(torch.nn.Module):
     """
         Simple UNet-like convnet, with t input at the start.
@@ -118,7 +118,7 @@ class UNetCelebA(torch.nn.Module):
         x += self.output_bias
         return x
 
-
+@DeprecationWarning
 class UResNetCelebA(torch.nn.Module):
     """
         UNet-like Resnet, with t input at the start. Same as the model above, but for 32x32
@@ -185,7 +185,7 @@ class UResNetCelebA(torch.nn.Module):
         x = self.conv_out(x)
         return x
 
-
+@DeprecationWarning
 class UNetCelebA32(torch.nn.Module):
     """
         Simple UNet-like convnet, with t input at the start. Same as the model above, but for 32x32
@@ -270,7 +270,7 @@ class UNetCelebA32(torch.nn.Module):
         x = self.output_bias + x
         return x
 
-
+@DeprecationWarning
 class UResNetCelebA32(torch.nn.Module):
     """
         Simple UNet-like Resnet, with t input at the start. Same as the model above, but for 32x32

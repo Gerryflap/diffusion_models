@@ -4,6 +4,7 @@
 import torch
 import torchvision
 
+from image_models import UResNet
 from schedules.cosine_schedule import CosineSchedule
 from schedules.linear_schedule import LinearSchedule
 
@@ -13,9 +14,9 @@ cuda = True
 model_eval = torch.load("model_eval.pt")
 n_eval_samples = 64
 res = 64
-eta = 1.0   # Noise factor, 0.0 for DDIM, 1.0 for DDPM
+eta = 0.0  # Noise factor, 0.0 for DDIM, 1.0 for DDPM
 seed = 42
-T = 100
+T = 50
 t_start = T-1
 # Use cosine schedule (instead of linear. Depends on the model you trained (probably))
 use_cosine_schedule = True
@@ -32,8 +33,10 @@ def sigma(t):
     sigm[t <= 1] = 0.0
     return torch.sqrt(sigm)
 
-def tau(s):
-    return 
+
+if isinstance(model_eval, UResNet):
+    print("UResNet detected, extracting resolution info from it...")
+    res = 2 ** (model_eval.downscales + 2)
 
 T_as_tensor = torch.ones(1, ) * T
 print("Beta: ", sched.get_betas(T_as_tensor))
@@ -44,6 +47,7 @@ generator.manual_seed(seed)
 x_T_eval = torch.normal(0, 1, (n_eval_samples, 3, res, res), generator=generator)
 x_T_eval = x_T_eval.cuda()
 torch.manual_seed(seed)
+
 
 # === Eval function definition ===
 def evaluate():
@@ -57,7 +61,7 @@ def evaluate():
         x_t = x_T_eval
         for t_val in range(t_start, 0, -1):
             t = ones * t_val
-            alpha_cumulative_t_min_1 = sched.get_alpha_hats(t-1).view(-1, 1, 1, 1)
+            alpha_cumulative_t_min_1 = sched.get_alpha_hats(t - 1).view(-1, 1, 1, 1)
             alpha_cumulative_t = sched.get_alpha_hats(t).view(-1, 1, 1, 1)
             sigm = sigma(t).view(-1, 1, 1, 1)
             if cuda:
@@ -72,11 +76,12 @@ def evaluate():
             pred = model_eval(x_t, t / T)
 
             x_prev = torch.sqrt(alpha_cumulative_t_min_1) * \
-                     (x_t - torch.sqrt(1.0 - alpha_cumulative_t)*pred)/torch.sqrt(alpha_cumulative_t)
+                     (x_t - torch.sqrt(1.0 - alpha_cumulative_t) * pred) / torch.sqrt(alpha_cumulative_t)
             x_prev = x_prev + torch.sqrt(1.0 - alpha_cumulative_t_min_1 - torch.square(sigm)) * pred
             x_prev = x_prev + sigm * torch.normal(0.0, 1.0, x_t.size(), device=x_t.device)
 
-            print("%d\t%.5f\t%.5f\t%.5f\t%.5f"%(t[0, 0].item(), x_prev.mean().item(), x_prev.std().item(), pred.mean().item(), pred.std().item()))
+            print("%d\t%.5f\t%.5f\t%.5f\t%.5f" % (
+            t[0, 0].item(), x_prev.mean().item(), x_prev.std().item(), pred.mean().item(), pred.std().item()))
             # Set x t to x t-1 (and some hacks to keep the deviation under control)
             # if (t_val > T-100):
             #     x_prev = (x_prev - x_prev.mean(dim=(1,2,3), keepdim=True)) / x_prev.std(dim=(1,2,3), keepdim=True)
