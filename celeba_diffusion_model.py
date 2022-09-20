@@ -2,7 +2,7 @@
     Diffusion models as in Denoising Diffusion Probabilistic Models, Ho et al. (2020)
     using the cosine scheduling of Improved Denoising Diffusion Probabilistic Models, Nichol et al. (2021)
 
-    The algorithm is applied to the CelebA dataset.
+    The algorithm is applied to image datasets.
 """
 
 import torch
@@ -30,7 +30,7 @@ epochs = 200000
 # Minibatch size
 batch_size = 64
 # Learning rate
-lr = 0.0003
+lr = 0.0001
 # Weight decay
 weight_decay = 0.0
 # Number of timesteps T
@@ -54,7 +54,7 @@ output_every_n = 3
 # Use sinusoidal embedding of t (recommended!)
 use_sin_embedding = True
 # During evaluation of the model, pretend t=T-N instead of t for the first N steps
-skip_N_t_steps = 50
+skip_N_t_steps = 0
 
 # === Define the prediction model ===
 if load_models:
@@ -135,7 +135,7 @@ dataset = ImageDataset("/run/media/gerben/LinuxData/data/ffhq_thumbnails/thumbna
 #                      Lambda(lambda tensor: tensor * 2.0 - 1.0)
 #                  ]),
 #                  download=True)
-dataloader = DataLoader(dataset, batch_size, shuffle=False, drop_last=True, num_workers=0)
+dataloader = DataLoader(dataset, batch_size, shuffle=True, drop_last=True, num_workers=12)
 
 x = dataloader.__iter__().__next__()[0]
 print(x.size(), x.min(), x.max())

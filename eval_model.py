@@ -15,10 +15,11 @@ res = 64
 seed = 42
 T = 1000
 t_start = T
+# DEPRECATED: No longer needed with newer models (UResNet)
 # Pretend the first N steps (T to T-N) are at timestep T-N to avoid over saturated or broken images
-# (advised: N=50 at T=1000)
-skip_N_t_steps = 1
-# Use cosine schedule (instead of linear. Depends on the model you trained (probably))
+# (for older models I advise: N=50 at T=1000)
+skip_N_t_steps = 0
+# Use cosine schedule (instead of linear. Depends on the model you trained)
 use_cosine_schedule = True
 
 # === Noise schedule ===

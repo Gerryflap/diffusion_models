@@ -1,10 +1,10 @@
+"""
+    Module containing the network architecture
+"""
 import math
-
 import torch.nn
-
 from torch import selu, relu
 from torch.nn import Conv2d, ConvTranspose2d, Linear, GroupNorm
-
 from modules import ResNetDownBlock, ResNetUpBlock
 from sinusoidal_embedding import SinusoidalEmbedding
 
@@ -145,8 +145,8 @@ class UResNet(torch.nn.Module):
             self.up_blocks.append(block)
 
         # Make the blocks visible to in parameters()
-        self.down_blocks = torch.nn.ParameterList(self.down_blocks)
-        self.up_blocks = torch.nn.ParameterList(self.up_blocks)
+        self.down_blocks = torch.nn.ModuleList(self.down_blocks)
+        self.up_blocks = torch.nn.ModuleList(self.up_blocks)
 
         # Not sure if 2 layers are needed, but otherwise there is a "path" through the model with
         #   no non-linearity from input to output (through first resnet block,
